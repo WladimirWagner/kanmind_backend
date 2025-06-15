@@ -6,7 +6,9 @@ class IsBoardMemberOrOwner(permissions.BasePermission):
     Used for read operations on boards.
     """
     def has_object_permission(self, request, view, obj):
-        return obj.owner == request.user or request.user in obj.members.all()
+        if obj.owner == request.user or request.user in obj.members.all():
+            return True
+        raise permissions.PermissionDenied("You must be either a member or the owner of this board.")
 
 
 class IsBoardOwner(permissions.BasePermission):
@@ -24,7 +26,7 @@ class IsTaskCreatorOrBoardOwner(permissions.BasePermission):
     Used for task deletion.
     """
     def has_object_permission(self, request, view, obj):
-        return obj.owner == request.user
+      return obj.owner == request.user
 
 
 class IsCommentCreator(permissions.BasePermission):

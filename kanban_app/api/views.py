@@ -14,6 +14,13 @@ class BoardListCreateView(generics.ListCreateAPIView):
     """
     View for listing all boards and creating new boards.
     Users can only see boards they own or are members of.
+    
+    GET: Returns a list of all boards where the user is either the owner or a member.
+    POST: Creates a new board with the authenticated user as owner.
+         Required fields:
+         - title: The title of the board
+         Optional fields:
+         - members: List of user IDs to be added as board members
     """
     serializer_class = BoardSerializer
     permission_classes = [permissions.IsAuthenticated]
@@ -38,19 +45,42 @@ class BoardDetailView(generics.RetrieveUpdateDestroyAPIView):
     """
     View for retrieving, updating and deleting a specific board.
     Only board owners can update or delete boards.
+    
+    GET: Returns detailed information about a specific board
+    PATCH: Updates board title and members
+           - Only board owners can modify the board
+           - Can update title and members list
+           - Members not included in the request will be removed
+    DELETE: Removes the board
+           - Only board owners can delete the board
     """
-    serializer_class = BoardDetailSerializer
-    permission_classes = [permissions.IsAuthenticated, IsBoardMemberOrOwner]
+    permission_classes = [permissions.IsAuthenticated]
     lookup_url_kwarg = 'board_id'
 
     def get_queryset(self):
         user = self.request.user
         return Board.objects.filter(Q(owner=user) | Q(members=user)).distinct()
 
-    def get_permissions(self):
-        if self.request.method in ['PUT', 'PATCH', 'DELETE']:
-            return [permissions.IsAuthenticated(), IsBoardOwner()]
-        return [permissions.IsAuthenticated(), IsBoardMemberOrOwner()]
+    def get_serializer_class(self):
+        if self.request.method in ['PATCH', 'PUT']:
+            return BoardUpdateSerializer
+        return BoardDetailSerializer
+
+    def get_object(self):
+        try:
+            board = Board.objects.get(pk=self.kwargs['board_id'])
+            
+            # Prüfe Berechtigungen basierend auf der HTTP-Methode
+            if self.request.method in ['PUT', 'PATCH', 'DELETE']:
+                if board.owner != self.request.user:
+                    raise permissions.PermissionDenied("Only the board owner can modify or delete the board.")
+            else:  # GET
+                if not (board.owner == self.request.user or self.request.user in board.members.all()):
+                    raise permissions.PermissionDenied("You must be either a member or the owner of this board.")
+            
+            return board
+        except Board.DoesNotExist:
+            raise Http404("Board not found")
 
     def update(self, request, *args, **kwargs):
         instance = self.get_object()
@@ -71,6 +101,13 @@ class EmailCheckView(generics.RetrieveAPIView):
     """
     View for checking if an email address is already registered.
     Returns user information if the email exists.
+    
+    GET: Checks if an email address is registered in the system
+         Query Parameters:
+         - email: The email address to check
+         Returns:
+         - User information if email exists
+         - 404 if email not found
     """
     permission_classes = [permissions.IsAuthenticated]
     serializer_class = UserShortSerializer
@@ -92,6 +129,16 @@ class TaskCreateView(generics.CreateAPIView):
     """
     View for creating new tasks.
     Validates board membership and assignee/reviewer permissions.
+    
+    POST: Creates a new task on a board
+          Required fields:
+          - board: ID of the board to create the task in
+          Optional fields:
+          - assignee_id: ID of the user to assign the task to
+          - reviewer_id: ID of the user to review the task
+          Validates:
+          - User must be board owner or member
+          - Assignee and reviewer must be board members
     """
     serializer_class = TaskSerializer
     permission_classes = [permissions.IsAuthenticated]
@@ -101,23 +148,34 @@ class TaskCreateView(generics.CreateAPIView):
         if not board_id:
             raise serializers.ValidationError({'error': 'board is required'})
 
-        board = get_object_or_404(Board, id=board_id)
+        try:
+            board = Board.objects.get(id=board_id)
+        except Board.DoesNotExist:
+            raise Http404("Board not found")
+
+        # Prüfe Board-Mitgliedschaft
         if not (board.owner == self.request.user or self.request.user in board.members.all()):
-            raise permissions.PermissionDenied("You don't have permission to create tasks in this board.")
+            raise permissions.PermissionDenied("You must be a member of the board to create tasks.")
 
         # Check if assignee and reviewer are board members
         assignee_id = self.request.data.get('assignee_id')
         reviewer_id = self.request.data.get('reviewer_id')
 
         if assignee_id:
-            assignee = get_object_or_404(User, id=assignee_id)
-            if not (assignee == board.owner or assignee in board.members.all()):
-                raise serializers.ValidationError({'error': 'Assignee must be a member of the board'})
+            try:
+                assignee = User.objects.get(id=assignee_id)
+                if not (assignee == board.owner or assignee in board.members.all()):
+                    raise serializers.ValidationError({'error': 'Assignee must be a member of the board'})
+            except User.DoesNotExist:
+                raise serializers.ValidationError({'error': 'Assignee not found'})
 
         if reviewer_id:
-            reviewer = get_object_or_404(User, id=reviewer_id)
-            if not (reviewer == board.owner or reviewer in board.members.all()):
-                raise serializers.ValidationError({'error': 'Reviewer must be a member of the board'})
+            try:
+                reviewer = User.objects.get(id=reviewer_id)
+                if not (reviewer == board.owner or reviewer in board.members.all()):
+                    raise serializers.ValidationError({'error': 'Reviewer must be a member of the board'})
+            except User.DoesNotExist:
+                raise serializers.ValidationError({'error': 'Reviewer not found'})
 
         serializer.save(board=board)
 
@@ -126,6 +184,13 @@ class TaskDetailView(generics.RetrieveUpdateDestroyAPIView):
     """
     View for retrieving, updating and deleting specific tasks.
     Only board owners can delete tasks.
+    
+    GET: Returns detailed information about a specific task
+    PATCH: Updates task information
+           - Board members can update task details
+           - Validates assignee and reviewer are board members
+    DELETE: Removes the task
+            - Only board owners can delete tasks
     """
     serializer_class = TaskSerializer
     permission_classes = [permissions.IsAuthenticated, IsBoardMemberOrOwner]
@@ -174,6 +239,10 @@ class TaskAssignedToMeView(generics.ListAPIView):
     """
     View for listing tasks assigned to the current user.
     Returns all tasks where the user is the assignee.
+    
+    GET: Returns a list of all tasks where the authenticated user is the assignee
+         - Includes task details and related board information
+         - Tasks are returned in chronological order
     """
     serializer_class = TaskListSerializer
     permission_classes = [permissions.IsAuthenticated]
@@ -186,6 +255,10 @@ class TaskReviewingView(generics.ListAPIView):
     """
     View for listing tasks that need review by the current user.
     Returns all tasks where the user is the reviewer.
+    
+    GET: Returns a list of all tasks where the authenticated user is the reviewer
+         - Includes task details and related board information
+         - Tasks are returned in chronological order
     """
     serializer_class = TaskListSerializer
     permission_classes = [permissions.IsAuthenticated]
@@ -199,22 +272,40 @@ class CommentListCreateView(generics.ListCreateAPIView):
     """
     View for listing and creating comments on a specific task.
     Only board members can view and create comments.
+    
+    GET: Returns all comments for a specific task
+         - Comments are returned in chronological order
+         - Only accessible to board members
+    POST: Creates a new comment on a task
+          Required fields:
+          - content: The comment text
+          - Only board members can create comments
     """
     serializer_class = CommentSerializer
     permission_classes = [permissions.IsAuthenticated]
 
     def get_queryset(self):
         task_id = self.kwargs['task_id']
-        task = get_object_or_404(Task, id=task_id)
+        try:
+            task = Task.objects.get(id=task_id)
+        except Task.DoesNotExist:
+            raise Http404("Task not found")
+
         if not (task.board.owner == self.request.user or self.request.user in task.board.members.all()):
             raise permissions.PermissionDenied("You don't have permission to view comments for this task.")
+        
         return Comment.objects.filter(task=task)
 
     def perform_create(self, serializer):
         task_id = self.kwargs['task_id']
-        task = get_object_or_404(Task, id=task_id)
+        try:
+            task = Task.objects.get(id=task_id)
+        except Task.DoesNotExist:
+            raise Http404("Task not found")
+
         if not (task.board.owner == self.request.user or self.request.user in task.board.members.all()):
             raise permissions.PermissionDenied("You don't have permission to create comments for this task.")
+        
         serializer.save(author=self.request.user, task=task)
 
 
@@ -222,6 +313,12 @@ class CommentDetailView(generics.RetrieveUpdateDestroyAPIView):
     """
     View for retrieving, updating and deleting specific comments.
     Only comment authors can modify or delete their comments.
+    
+    GET: Returns detailed information about a specific comment
+    PUT/PATCH: Updates comment content
+               - Only the comment author can modify the comment
+    DELETE: Removes the comment
+            - Only the comment author can delete the comment
     """
     serializer_class = CommentSerializer
     permission_classes = [permissions.IsAuthenticated, IsCommentCreator]

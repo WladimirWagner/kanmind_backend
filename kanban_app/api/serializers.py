@@ -149,12 +149,43 @@ class TaskListSerializer(serializers.ModelSerializer):
 
 class CommentSerializer(serializers.ModelSerializer):
     """
-    Comment serializer with nested author information.
-    Includes read-only timestamps.
+    Comment serializer with author information.
+    Includes creation timestamp and author name.
     """
-    author = UserShortSerializer(read_only=True)
+    author = serializers.SerializerMethodField()
 
     class Meta:
         model = Comment
-        fields = ['id', 'content', 'author', 'created_at', 'updated_at']
-        read_only_fields = ['author', 'created_at', 'updated_at']
+        fields = ['id', 'created_at', 'author', 'content']
+        read_only_fields = ['author', 'created_at']
+
+    def get_author(self, obj):
+        return obj.author.get_full_name() or obj.author.username
+
+
+class BoardUpdateSerializer(serializers.ModelSerializer):
+    """
+    Serializer for updating board title and members.
+    Only includes title and members fields.
+    """
+    owner_data = UserShortSerializer(source='owner', read_only=True)
+    members_data = UserShortSerializer(source='members', many=True, read_only=True)
+    members = serializers.ListField(write_only=True, required=False)
+
+    class Meta:
+        model = Board
+        fields = ['id', 'title', 'owner_data', 'members_data', 'members']
+
+    def update(self, instance, validated_data):
+        members = validated_data.pop('members', None)
+        
+        # Update title if provided
+        for attr, value in validated_data.items():
+            setattr(instance, attr, value)
+        
+        # Update members if provided
+        if members is not None:
+            instance.members.set(members)
+        
+        instance.save()
+        return instance
