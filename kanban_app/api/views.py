@@ -11,6 +11,10 @@ from .permissions import IsBoardMemberOrOwner, IsBoardOwner, IsTaskCreatorOrBoar
 
 # Board Views
 class BoardListCreateView(generics.ListCreateAPIView):
+    """
+    View for listing all boards and creating new boards.
+    Users can only see boards they own or are members of.
+    """
     serializer_class = BoardSerializer
     permission_classes = [permissions.IsAuthenticated]
 
@@ -31,6 +35,10 @@ class BoardListCreateView(generics.ListCreateAPIView):
 
 
 class BoardDetailView(generics.RetrieveUpdateDestroyAPIView):
+    """
+    View for retrieving, updating and deleting a specific board.
+    Only board owners can update or delete boards.
+    """
     serializer_class = BoardDetailSerializer
     permission_classes = [permissions.IsAuthenticated, IsBoardMemberOrOwner]
     lookup_url_kwarg = 'board_id'
@@ -60,6 +68,10 @@ class BoardDetailView(generics.RetrieveUpdateDestroyAPIView):
 
 # Email Check View
 class EmailCheckView(generics.RetrieveAPIView):
+    """
+    View for checking if an email address is already registered.
+    Returns user information if the email exists.
+    """
     permission_classes = [permissions.IsAuthenticated]
     serializer_class = UserShortSerializer
 
@@ -77,6 +89,10 @@ class EmailCheckView(generics.RetrieveAPIView):
 
 # Task Views
 class TaskCreateView(generics.CreateAPIView):
+    """
+    View for creating new tasks.
+    Validates board membership and assignee/reviewer permissions.
+    """
     serializer_class = TaskSerializer
     permission_classes = [permissions.IsAuthenticated]
 
@@ -89,7 +105,7 @@ class TaskCreateView(generics.CreateAPIView):
         if not (board.owner == self.request.user or self.request.user in board.members.all()):
             raise permissions.PermissionDenied("You don't have permission to create tasks in this board.")
 
-        # Überprüfen Sie, ob assignee und reviewer Mitglieder des Boards sind
+        # Check if assignee and reviewer are board members
         assignee_id = self.request.data.get('assignee_id')
         reviewer_id = self.request.data.get('reviewer_id')
 
@@ -107,6 +123,10 @@ class TaskCreateView(generics.CreateAPIView):
 
 
 class TaskDetailView(generics.RetrieveUpdateDestroyAPIView):
+    """
+    View for retrieving, updating and deleting specific tasks.
+    Only board owners can delete tasks.
+    """
     serializer_class = TaskSerializer
     permission_classes = [permissions.IsAuthenticated, IsBoardMemberOrOwner]
     lookup_url_kwarg = 'task_id'
@@ -130,7 +150,7 @@ class TaskDetailView(generics.RetrieveUpdateDestroyAPIView):
         instance = self.get_object()
         board = instance.board
 
-        # Überprüfen Sie, ob assignee und reviewer Mitglieder des Boards sind
+        # Check if assignee and reviewer are board members
         assignee_id = request.data.get('assignee_id')
         reviewer_id = request.data.get('reviewer_id')
 
@@ -151,6 +171,10 @@ class TaskDetailView(generics.RetrieveUpdateDestroyAPIView):
 
 
 class TaskAssignedToMeView(generics.ListAPIView):
+    """
+    View for listing tasks assigned to the current user.
+    Returns all tasks where the user is the assignee.
+    """
     serializer_class = TaskListSerializer
     permission_classes = [permissions.IsAuthenticated]
 
@@ -159,6 +183,10 @@ class TaskAssignedToMeView(generics.ListAPIView):
 
 
 class TaskReviewingView(generics.ListAPIView):
+    """
+    View for listing tasks that need review by the current user.
+    Returns all tasks where the user is the reviewer.
+    """
     serializer_class = TaskListSerializer
     permission_classes = [permissions.IsAuthenticated]
 
@@ -168,6 +196,10 @@ class TaskReviewingView(generics.ListAPIView):
 
 # Comment Views
 class CommentListCreateView(generics.ListCreateAPIView):
+    """
+    View for listing and creating comments on a specific task.
+    Only board members can view and create comments.
+    """
     serializer_class = CommentSerializer
     permission_classes = [permissions.IsAuthenticated]
 
@@ -187,6 +219,10 @@ class CommentListCreateView(generics.ListCreateAPIView):
 
 
 class CommentDetailView(generics.RetrieveUpdateDestroyAPIView):
+    """
+    View for retrieving, updating and deleting specific comments.
+    Only comment authors can modify or delete their comments.
+    """
     serializer_class = CommentSerializer
     permission_classes = [permissions.IsAuthenticated, IsCommentCreator]
     lookup_url_kwarg = 'comment_id'
